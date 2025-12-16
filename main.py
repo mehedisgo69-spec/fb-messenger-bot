@@ -1,49 +1,140 @@
 from flask import Flask, request
 import requests
 import os
+import re
 
 app = Flask(__name__)
 
-def translate_auto(text):
-    original_text = text.strip()
+PAGE_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 
+
+# ------------------ Helpers ------------------
+
+def is_bangla(text):
+    return any("\u0980" <= c <= "\u09FF" for c in text)
+
+
+def is_roman_bangla(text):
+    keywords = [
+        "ami", "tumi", "kemon", "acho", "bhalo", "nai", "কি", "কি?"
+    ]
+    t = text.lower()
+    return any(k in t for k in keywords)
+
+
+def fix_english(text):
+    text = text.strip()
+    if not text:
+        return text
+
+    # Capitalize first letter
+    text = text[0].upper() + text[1:]
+
+    # Fix spacing before punctuation
+    text = re.sub(r"\s+([?.!,])", r"\1", text)
+
+    # Ensure ending punctuation
+    if text[-1].isalnum():
+        text += "."
+
+    return text
+
+
+def translate_text(text):
+    text = text.strip()
+    if not text:
+        return ""
+
+    # Decide target language
+    if is_bangla(text):
+        target = "en"
+    elif is_roman_bangla(text):
+        target = "en"
+    else:
+        target = "bn"
+
+    # -------- Try LibreTranslate --------
     try:
-        # ---------- Detect Bangla ----------
-        is_bangla = any("\u0980" <= c <= "\u09FF" for c in original_text)
-        target = "en" if is_bangla else "bn"
-
-        # ---------- Try LibreTranslate first ----------
-        try:
-            lt_url = "https://libretranslate.de/translate"
-            payload = {
-                "q": original_text,
+        res = requests.post(
+            "https://libretranslate.de/translate",
+            json={
+                "q": text,
                 "source": "auto",
                 "target": target,
                 "format": "text"
-            }
-            res = requests.post(lt_url, json=payload, timeout=7)
-            translated = res.json()["translatedText"]
+            },
+            timeout=10
+        )
+        translated = res.json()["translatedText"]
 
-        except:
-            # ---------- Google Fallback ----------
-            google_url = "https://translate.googleapis.com/translate_a/single"
-            params = {
-                "client": "gtx",
-                "sl": "auto",
-                "tl": target,
-                "dt": "t",
-                "q": original_text
-            }
-            r = requests.get(google_url, params=params, timeout=7)
-            translated = "".join(
-                part[0] for part in r.json()[0]
+    except:
+        # -------- Google fallback --------
+        try:
+            res = requests.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params={
+                    "client": "gtx",
+                    "sl": "auto",
+                    "tl": target,
+                    "dt": "t",
+                    "q": text
+                },
+                timeout=10
             )
+            translated = "".join(
+                part[0] for part in res.json()[0]
+            )
+        except:
+            return "Translation failed. Please try again."
 
-        # ---------- Capital Fix ----------
-        if translated and translated[0].isalpha():
-            translated = translated[0].upper() + translated[1:]
+    if target == "en":
+        translated = fix_english(translated)
 
-        return translated
+    return translated
 
-    except Exception:
-        return "Sorry, translation service is temporarily busy."
+
+# ------------------ Webhook ------------------
+
+@app.route("/webhook", methods=["GET"])
+def verify():
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if token == VERIFY_TOKEN:
+        return challenge
+    return "Invalid token", 403
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+
+    for entry in data.get("entry", []):
+        for event in entry.get("messaging", []):
+            if "message" in event and "text" in event["message"]:
+                sender_id = event["sender"]["id"]
+                text = event["message"]["text"]
+
+                reply = translate_text(text)
+                send_message(sender_id, reply)
+
+    return "ok", 200
+
+
+def send_message(psid, text):
+    url = "https://graph.facebook.com/v18.0/me/messages"
+    payload = {
+        "recipient": {"id": psid},
+        "message": {"text": text}
+    }
+    params = {"access_token": PAGE_TOKEN}
+
+    requests.post(url, params=params, json=payload, timeout=10)
+
+
+# ------------------ Health Check ------------------
+
+@app.route("/")
+def home():
+    return "Messenger Translator Bot is running 🚀"
