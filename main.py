@@ -4,64 +4,113 @@ import os
 
 app = Flask(__name__)
 
-VERIFY_TOKEN = "mytoken"
+# ================= CONFIG =================
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+VERIFY_TOKEN = "mytoken"
+# =========================================
 
+
+@app.route("/", methods=["GET"])
+def home():
+    return "Messenger Translator Bot is running ✅", 200
+
+
+# ---------- WEBHOOK VERIFY ----------
 @app.route("/webhook", methods=["GET"])
 def verify():
-    if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        return request.args.get("hub.challenge")
-    return "wrong token"
+    token_sent = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
 
+    if token_sent == VERIFY_TOKEN:
+        return challenge
+    return "Invalid verification token", 403
+
+
+# ---------- WEBHOOK RECEIVE ----------
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
-    sender = data["entry"][0]["messaging"][0]["sender"]["id"]
-    text = data["entry"][0]["messaging"][0]["message"]["text"]
+    if data.get("object") == "page":
+        for entry in data.get("entry", []):
+            for event in entry.get("messaging", []):
+                if "message" in event and "text" in event["message"]:
+                    sender_id = event["sender"]["id"]
+                    text = event["message"]["text"]
 
-    translated = translate(text)
-    send_message(sender, translated)
+                    reply_text = translate_auto(text)
+                    send_message(sender_id, reply_text)
 
-    return "ok"
+    return "ok", 200
 
-def translate(text):
+
+# ---------- TRANSLATION LOGIC ----------
+def translate_auto(text):
     try:
-        url = "https://translate.googleapis.com/translate_a/single"
-        params = {
-            "client": "gtx",
-            "sl": "auto",
-            "tl": "en",
-            "dt": "t",
-            "q": text
+        original_text = text.strip()
+
+        # ----- Step 1: Detect Roman Bangla -----
+        roman_bangla_keywords = [
+            "ami", "tumi", "apni", "kemon", "acho", "achen",
+            "ki", "korcho", "korchen", "valo", "bhalo",
+            "thik", "achhi", "achi"
+        ]
+
+        is_roman_bangla = any(
+            word in original_text.lower()
+            for word in roman_bangla_keywords
+        )
+
+        # ----- Step 2: Roman Bangla → Bangla -----
+        if is_roman_bangla:
+            try:
+                rb_url = "https://inputtools.google.com/request"
+                rb_payload = {
+                    "text": original_text,
+                    "itc": "bn-t-i0-und",
+                    "num": 1
+                }
+                rb_res = requests.post(rb_url, json=rb_payload, timeout=10)
+                original_text = rb_res.json()[1][0][1][0]
+            except:
+                pass
+
+        # ----- Step 3: Detect Bangla or English -----
+        is_bangla = any("\u0980" <= c <= "\u09FF" for c in original_text)
+        target_lang = "en" if is_bangla else "bn"
+
+        # ----- Step 4: Sentence-based Translation -----
+        lt_url = "https://libretranslate.de/translate"
+        payload = {
+            "q": original_text,
+            "source": "auto",
+            "target": target_lang,
+            "format": "text"
         }
 
-        r = requests.get(url, params=params).json()
-        result = r[0][0][0]
+        response = requests.post(lt_url, json=payload, timeout=15)
+        translated = response.json()["translatedText"]
 
-        try:
-            text.encode("ascii")
-            params["tl"] = "bn"
-            r = requests.get(url, params=params).json()
-            result = r[0][0][0]
-        except:
-            pass
+        # ----- Step 5: Capitalization Fix -----
+        if translated and translated[0].isalpha():
+            translated = translated[0].upper() + translated[1:]
 
-        return result
-    except:
-        return "translation error"
+        return translated
 
-def send_message(sender_id, message):
+    except Exception:
+        return "Translation failed. Please try again."
+
+
+# ---------- SEND MESSAGE ----------
+def send_message(recipient_id, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     payload = {
-        "recipient": {"id": sender_id},
-        "message": {"text": message}
+        "recipient": {"id": recipient_id},
+        "message": {"text": text}
     }
     requests.post(url, json=payload)
 
-@app.route("/")
-def home():
-    return "Bot running"
 
+# ---------- START ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
