@@ -1,3 +1,9 @@
+from flask import Flask, request
+import requests
+import os
+
+app = Flask(__name__)
+
 def translate_auto(text):
     original_text = text.strip()
 
