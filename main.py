@@ -28,17 +28,28 @@ def fix_english(text):
     if not text:
         return text
 
-    # Capitalize first letter
-    text = text[0].upper() + text[1:]
-
-    # Fix spacing before punctuation
+    # Remove extra spaces before punctuation
     text = re.sub(r"\s+([?.!,])", r"\1", text)
 
-    # Ensure ending punctuation
-    if text[-1].isalnum():
-        text += "."
+    # Split sentences by punctuation
+    sentences = re.split(r'([?.!])', text)
 
-    return text
+    fixed = ""
+    for i in range(0, len(sentences) - 1, 2):
+        sentence = sentences[i].strip()
+        punct = sentences[i + 1]
+
+        if sentence:
+            sentence = sentence[0].upper() + sentence[1:]
+            fixed += sentence + punct + " "
+
+    # Handle last sentence if no punctuation
+    if len(sentences) % 2 != 0:
+        last = sentences[-1].strip()
+        if last:
+            fixed += last[0].upper() + last[1:] + "."
+
+    return fixed.strip()
 
 
 def translate_text(text):
