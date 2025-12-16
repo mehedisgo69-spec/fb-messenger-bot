@@ -8,79 +8,18 @@ app = Flask(__name__)
 PAGE_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 
-
-# ------------------ Helpers ------------------
+# ------------------ Language Helpers ------------------
 
 def is_bangla(text):
     return any("\u0980" <= c <= "\u09FF" for c in text)
 
-
-def roman_to_bangla(text):
-    try:
-        res = requests.post(
-            "https://libretranslate.de/translate",
-            json={
-                "q": text,
-                "source": "auto",
-                "target": "bn",
-                "format": "text"
-            },
-            timeout=7
-        )
-        return res.json()["translatedText"]
-    except:
-        return text
-
-def is_question(text):
-    text = text.lower()
-
-    question_words_bn = [
-        "কি", "কেন", "কেমন", "কোথায়", "কখন", "কিভাবে", "তুমি", "আপনি"
+def is_roman_bangla(text):
+    keywords = [
+        "ami", "tumi", "kemon", "acho", "bhalo", "nai",
+        "ki", "keno", "kothay", "jabo", "cholo"
     ]
-
-    question_words_en = [
-        "do you", "are you", "have you", "is it",
-        "can you", "will you", "what", "why", "how"
-    ]
-
-    if "?" in text:
-        return True
-
-    for w in question_words_bn:
-        if w in text:
-            return True
-
-    for w in question_words_en:
-        if w in text:
-            return True
-
-    return False
-    
-
-def fix_english(text, original_text=""):
-    text = text.strip()
-    if not text:
-        return text
-
-    question = is_question(original_text)
-
-    # Remove extra spaces before punctuation
-    text = re.sub(r"\s+([?.!,])", r"\1", text)
-
-    # Capitalize first letter
-    text = text[0].upper() + text[1:]
-
-    # Remove ending punctuation
-    text = re.sub(r"[.?!]+$", "", text)
-
-    # Add correct punctuation
-    if question:
-        text += "?"
-    else:
-        text += "."
-
-    return text
-
+    t = text.lower()
+    return any(k in t for k in keywords)
 
 def fix_english(text):
     text = text.strip()
@@ -90,69 +29,108 @@ def fix_english(text):
     # remove space before punctuation
     text = re.sub(r"\s+([?.!,])", r"\1", text)
 
-    # split sentences
-    parts = re.split(r'([?.!])', text)
-
+    sentences = re.split(r'([?.!])', text)
     fixed = ""
-    for i in range(0, len(parts) - 1, 2):
-        sentence = parts[i].strip()
-        punct = parts[i + 1]
 
-        if sentence:
-            sentence = sentence[0].upper() + sentence[1:]
+    for i in range(0, len(sentences) - 1, 2):
+        s = sentences[i].strip()
+        p = sentences[i + 1]
+        if s:
+            fixed += s[0].upper() + s[1:] + p + " "
 
-        fixed += sentence + punct + " "
+    if len(sentences) % 2 != 0:
+        last = sentences[-1].strip()
+        if last:
+            fixed += last[0].upper() + last[1:] + "."
 
-    fixed = fixed.strip()
+    return fixed.strip()
 
-    # if no punctuation at end
-    if fixed and fixed[-1] not in ".?!":
-        fixed += "."
+# ------------------ Translation ------------------
 
-    return fixed
+def translate_text(text):
+    text = text.strip()
+    if not text:
+        return ""
 
+    # Decide target language
+    if is_bangla(text) or is_roman_bangla(text):
+        target = "en"
+    else:
+        target = "bn"
 
-# ------------------ Webhook ------------------
+    try:
+        # LibreTranslate
+        res = requests.post(
+            "https://libretranslate.de/translate",
+            json={
+                "q": text,
+                "source": "auto",
+                "target": target,
+                "format": "text"
+            },
+            timeout=10
+        )
+        translated = res.json()["translatedText"]
 
-@app.route("/webhook", methods=["GET"])
-def verify():
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
+    except Exception as e:
+        print("LibreTranslate failed:", e)
+        try:
+            # Google fallback
+            params = {
+                "client": "gtx",
+                "sl": "auto",
+                "tl": target,
+                "dt": "t",
+                "q": text
+            }
+            g = requests.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params=params,
+                timeout=10
+            )
+            translated = "".join(
+                part[0] for part in g.json()[0] if part[0]
+            )
+        except Exception as e:
+            print("Google fallback failed:", e)
+            return text
 
-    if token == VERIFY_TOKEN:
-        return challenge
-    return "Invalid token", 403
+    if target == "en":
+        return fix_english(translated)
+    else:
+        return translated
 
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.json
-
-    for entry in data.get("entry", []):
-        for event in entry.get("messaging", []):
-            if "message" in event and "text" in event["message"]:
-                sender_id = event["sender"]["id"]
-                text = event["message"]["text"]
-
-                reply = translate_text(text)
-                send_message(sender_id, reply)
-
-    return "ok", 200
-
+# ------------------ Messenger ------------------
 
 def send_message(psid, text):
-    url = "https://graph.facebook.com/v18.0/me/messages"
+    url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_TOKEN}"
     payload = {
         "recipient": {"id": psid},
         "message": {"text": text}
     }
-    params = {"access_token": PAGE_TOKEN}
+    requests.post(url, json=payload)
 
-    requests.post(url, params=params, json=payload, timeout=10)
+@app.route("/webhook", methods=["GET"])
+def verify():
+    if request.args.get("hub.verify_token") == VERIFY_TOKEN:
+        return request.args.get("hub.challenge")
+    return "Invalid token", 403
 
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json()
 
-# ------------------ Health Check ------------------
+    for entry in data.get("entry", []):
+        for msg in entry.get("messaging", []):
+            if "message" in msg and "text" in msg["message"]:
+                psid = msg["sender"]["id"]
+                text = msg["message"]["text"]
+
+                translated = translate_text(text)
+                send_message(psid, translated)
+
+    return "ok", 200
 
 @app.route("/")
 def home():
-    return "Messenger Translator Bot is running 🚀"
+    return "FB Messenger Translator Bot is running 🚀"
