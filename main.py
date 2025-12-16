@@ -17,39 +17,60 @@ def is_bangla(text):
 
 def is_roman_bangla(text):
     keywords = [
-        "ami", "tumi", "kemon", "acho", "bhalo", "nai", "কি", "কি?"
+        "ami", "tumi", "kemon", "acho", "bhalo", "nai", "কি", "কিভাবে"
     ]
     t = text.lower()
     return any(k in t for k in keywords)
 
+def is_question(text):
+    text = text.lower()
 
-def fix_english(text):
+    question_words_bn = [
+        "কি", "কেন", "কেমন", "কোথায়", "কখন", "কিভাবে", "তুমি", "আপনি"
+    ]
+
+    question_words_en = [
+        "do you", "are you", "have you", "is it",
+        "can you", "will you", "what", "why", "how"
+    ]
+
+    if "?" in text:
+        return True
+
+    for w in question_words_bn:
+        if w in text:
+            return True
+
+    for w in question_words_en:
+        if w in text:
+            return True
+
+    return False
+    
+
+def fix_english(text, original_text=""):
     text = text.strip()
     if not text:
         return text
 
+    question = is_question(original_text)
+
     # Remove extra spaces before punctuation
     text = re.sub(r"\s+([?.!,])", r"\1", text)
 
-    # Split sentences by punctuation
-    sentences = re.split(r'([?.!])', text)
+    # Capitalize first letter
+    text = text[0].upper() + text[1:]
 
-    fixed = ""
-    for i in range(0, len(sentences) - 1, 2):
-        sentence = sentences[i].strip()
-        punct = sentences[i + 1]
+    # Remove ending punctuation
+    text = re.sub(r"[.?!]+$", "", text)
 
-        if sentence:
-            sentence = sentence[0].upper() + sentence[1:]
-            fixed += sentence + punct + " "
+    # Add correct punctuation
+    if question:
+        text += "?"
+    else:
+        text += "."
 
-    # Handle last sentence if no punctuation
-    if len(sentences) % 2 != 0:
-        last = sentences[-1].strip()
-        if last:
-            fixed += last[0].upper() + last[1:] + "."
-
-    return fixed.strip()
+    return text
 
 
 def translate_text(text):
@@ -100,7 +121,7 @@ def translate_text(text):
             return "Translation failed. Please try again."
 
     if target == "en":
-        translated = fix_english(translated)
+        translated = fix_english(translated, text)
 
     return translated
 
