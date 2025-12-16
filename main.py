@@ -106,30 +106,41 @@ def send_message(psid, text):
 
 # ---------------- Webhook ----------------
 
-@app.route("/webhook", methods=["GET", "POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.method == "GET":
-        if (
-            request.args.get("hub.mode") == "subscribe"
-            and request.args.get("hub.verify_token") == VERIFY_TOKEN
-        ):
-            return request.args.get("hub.challenge")
-        return "Verification failed", 403
-
     data = request.get_json()
 
-    if "entry" in data:
-        for entry in data["entry"]:
-            if "messaging" in entry:
-                for event in entry["messaging"]:
-                    if "message" in event and "text" in event["message"]:
-                        sender = event["sender"]["id"]
-                        text = event["message"]["text"]
+    for entry in data.get("entry", []):
+        for msg in entry.get("messaging", []):
 
-                        reply = translate_text(text)
-                        send_message(sender, reply)
+            # 👉 Get Started button
+            if "postback" in msg:
+                psid = msg["sender"]["id"]
+                payload = msg["postback"].get("payload")
 
-    return "OK"
+                if payload == "GET_STARTED":
+                    welcome_text = (
+                        "স্বাগতম! 👋😊\n\n"
+                        "বাংলা বা ইংরেজিতে লিখুন,\n"
+                        "আমি স্বয়ংক্রিয়ভাবে অনুবাদ করে দেবো। 🌍\n\n"
+                        "উদাহরণ:\n"
+                        "• কেমন আছো?\n"
+                        "• How are you?"
+                    )
+                    send_message(psid, welcome_text)
+
+                return "ok", 200
+
+            # 👉 Normal text message
+            if "message" in msg and "text" in msg["message"]:
+                psid = msg["sender"]["id"]
+                text = msg["message"]["text"]
+
+                translated = translate_text(text)
+                send_message(psid, translated)
+
+    return "ok", 200
+
 
 # ---------------- Health ----------------
 
