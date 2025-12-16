@@ -15,42 +15,51 @@ def is_bangla(text):
 
 def is_roman_bangla(text):
     keywords = [
-        "ami", "tumi", "kemon", "acho", "bhalo", "nai",
-        "ki", "keno", "kothay", "jabo", "cholo"
+        "ami", "tumi", "kemon", "acho", "jabo", "khabo",
+        "korbo", "cholo", "ek", "sathe", "valo", "bhalo"
     ]
     t = text.lower()
     return any(k in t for k in keywords)
+
+# ------------------ English Formatter ------------------
 
 def fix_english(text):
     text = text.strip()
     if not text:
         return text
 
-    # remove space before punctuation
+    greetings = ["hi", "hello", "hey", "thanks", "ok"]
+    if text.lower() in greetings:
+        return text.capitalize() + "."
+
+    question_words = [
+        "how", "what", "why", "where", "when",
+        "do", "does", "did", "is", "are", "can", "will"
+    ]
+
+    is_question = any(
+        text.lower().startswith(q + " ") or text.lower() == q
+        for q in question_words
+    )
+
     text = re.sub(r"\s+([?.!,])", r"\1", text)
+    text = text[0].upper() + text[1:]
 
-    sentences = re.split(r'([?.!])', text)
-    fixed = ""
+    if text.endswith(("?", "!", ".")):
+        return text
 
-    for i in range(0, len(sentences) - 1, 2):
-        s = sentences[i].strip()
-        p = sentences[i + 1]
-        if s:
-            fixed += s[0].upper() + s[1:] + p + " "
+    return text + ("?" if is_question else ".")
 
-    if len(sentences) % 2 != 0:
-        last = sentences[-1].strip()
-        if last:
-            fixed += last[0].upper() + last[1:] + "."
-
-    return fixed.strip()
-
-# ------------------ Translation ------------------
+# ------------------ Translator ------------------
 
 def translate_text(text):
     text = text.strip()
     if not text:
         return ""
+
+    # Greeting direct reply
+    if text.lower() in ["hi", "hello", "hey"]:
+        return fix_english(text)
 
     # Decide target language
     if is_bangla(text) or is_roman_bangla(text):
@@ -59,7 +68,6 @@ def translate_text(text):
         target = "bn"
 
     try:
-        # LibreTranslate
         res = requests.post(
             "https://libretranslate.de/translate",
             json={
@@ -71,36 +79,15 @@ def translate_text(text):
             timeout=10
         )
         translated = res.json()["translatedText"]
-
-    except Exception as e:
-        print("LibreTranslate failed:", e)
-        try:
-            # Google fallback
-            params = {
-                "client": "gtx",
-                "sl": "auto",
-                "tl": target,
-                "dt": "t",
-                "q": text
-            }
-            g = requests.get(
-                "https://translate.googleapis.com/translate_a/single",
-                params=params,
-                timeout=10
-            )
-            translated = "".join(
-                part[0] for part in g.json()[0] if part[0]
-            )
-        except Exception as e:
-            print("Google fallback failed:", e)
-            return text
+    except:
+        return "Translation failed."
 
     if target == "en":
-        return fix_english(translated)
-    else:
-        return translated
+        translated = fix_english(translated)
 
-# ------------------ Messenger ------------------
+    return translated
+
+# ------------------ Facebook ------------------
 
 def send_message(psid, text):
     url = f"https://graph.facebook.com/v18.0/me/messages?access_token={PAGE_TOKEN}"
@@ -110,27 +97,36 @@ def send_message(psid, text):
     }
     requests.post(url, json=payload)
 
-@app.route("/webhook", methods=["GET"])
-def verify():
-    if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        return request.args.get("hub.challenge")
-    return "Invalid token", 403
+# ------------------ Webhook ------------------
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
+    if request.method == "GET":
+        if (
+            request.args.get("hub.mode") == "subscribe"
+            and request.args.get("hub.verify_token") == VERIFY_TOKEN
+        ):
+            return request.args.get("hub.challenge")
+        return "Verification failed"
+
     data = request.get_json()
 
     for entry in data.get("entry", []):
-        for msg in entry.get("messaging", []):
-            if "message" in msg and "text" in msg["message"]:
-                psid = msg["sender"]["id"]
-                text = msg["message"]["text"]
+        for event in entry.get("messaging", []):
+            if "message" in event and "text" in event["message"]:
+                sender = event["sender"]["id"]
+                text = event["message"]["text"]
 
-                translated = translate_text(text)
-                send_message(psid, translated)
+                reply = translate_text(text)
+                send_message(sender, reply)
 
-    return "ok", 200
+    return "OK"
+
+# ------------------ Home ------------------
 
 @app.route("/")
 def home():
-    return "FB Messenger Translator Bot is running 🚀"
+    return "FB Translator Bot is running 🚀"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
