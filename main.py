@@ -22,6 +22,22 @@ def is_roman_bangla(text):
     t = text.lower()
     return any(k in t for k in keywords)
 
+def roman_to_bangla(text):
+    try:
+        res = requests.post(
+            "https://libretranslate.de/translate",
+            json={
+                "q": text,
+                "source": "auto",
+                "target": "bn",
+                "format": "text"
+            },
+            timeout=7
+        )
+        return res.json()["translatedText"]
+    except:
+        return text
+
 def is_question(text):
     text = text.lower()
 
@@ -74,19 +90,19 @@ def fix_english(text, original_text=""):
 
 
 def translate_text(text):
-    text = text.strip()
-    if not text:
+    original_text = text.strip()
+    if not original_text:
         return ""
 
-    # Decide target language
-    if is_bangla(text):
-        target = "en"
-    elif is_roman_bangla(text):
-        target = "en"
+    # Roman Bangla → Bangla
+    if is_roman_bangla(original_text) and not is_bangla(original_text):
+        text = roman_to_bangla(original_text)
     else:
-        target = "bn"
+        text = original_text
 
-    # -------- Try LibreTranslate --------
+    # Decide target language
+    target = "en" if is_bangla(text) else "bn"
+
     try:
         res = requests.post(
             "https://libretranslate.de/translate",
@@ -99,29 +115,12 @@ def translate_text(text):
             timeout=10
         )
         translated = res.json()["translatedText"]
-
     except:
-        # -------- Google fallback --------
-        try:
-            res = requests.get(
-                "https://translate.googleapis.com/translate_a/single",
-                params={
-                    "client": "gtx",
-                    "sl": "auto",
-                    "tl": target,
-                    "dt": "t",
-                    "q": text
-                },
-                timeout=10
-            )
-            translated = "".join(
-                part[0] for part in res.json()[0]
-            )
-        except:
-            return "Translation failed. Please try again."
+        return "Translation failed."
 
+    # Fix English punctuation & capitalization
     if target == "en":
-        translated = fix_english(translated, text)
+        translated = fix_english(translated, original_text)
 
     return translated
 
