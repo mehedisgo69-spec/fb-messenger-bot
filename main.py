@@ -36,9 +36,6 @@ def fix_english(text):
 
     text = re.sub(r"\s+([?.!,])", r"\1", text)
 
-    if len(text) == 1:
-        return text.upper()
-
     text = text[0].upper() + text[1:]
 
     if text.endswith(("?", "!", ".")):
@@ -54,7 +51,7 @@ def fix_english(text):
 
     return text + "."
 
-# ---------------- Google Translate (Fixed) ----------------
+# ---------------- Google Translate ----------------
 
 def google_translate(text, target):
     url = "https://translate.googleapis.com/translate_a/single"
@@ -96,7 +93,7 @@ def translate_text(text):
 
     return translated
 
-# ---------------- Facebook Send ----------------
+# ---------------- Send Message ----------------
 
 def send_message(psid, text):
     url = "https://graph.facebook.com/v18.0/me/messages"
@@ -121,6 +118,24 @@ def webhook():
 
     data = request.get_json()
 
-    for entry in data.get("entry", []):
-        for event in entry.get("messaging", []):
-            if "message"
+    if "entry" in data:
+        for entry in data["entry"]:
+            if "messaging" in entry:
+                for event in entry["messaging"]:
+                    if "message" in event and "text" in event["message"]:
+                        sender = event["sender"]["id"]
+                        text = event["message"]["text"]
+
+                        reply = translate_text(text)
+                        send_message(sender, reply)
+
+    return "OK"
+
+# ---------------- Health ----------------
+
+@app.route("/")
+def home():
+    return "FB Bangla-English Translator Bot is running 🚀"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
