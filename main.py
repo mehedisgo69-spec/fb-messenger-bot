@@ -82,40 +82,34 @@ def fix_english(text, original_text=""):
     return text
 
 
-def translate_text(text):
-    original_text = text.strip()
-    if not original_text:
-        return ""
+def fix_english(text):
+    text = text.strip()
+    if not text:
+        return text
 
-    # Roman Bangla → Bangla
-    if is_roman_bangla(original_text) and not is_bangla(original_text):
-        text = roman_to_bangla(original_text)
-    else:
-        text = original_text
+    # remove space before punctuation
+    text = re.sub(r"\s+([?.!,])", r"\1", text)
 
-    # Decide target language
-    target = "en" if is_bangla(text) else "bn"
+    # split sentences
+    parts = re.split(r'([?.!])', text)
 
-    try:
-        res = requests.post(
-            "https://libretranslate.de/translate",
-            json={
-                "q": text,
-                "source": "auto",
-                "target": target,
-                "format": "text"
-            },
-            timeout=10
-        )
-        translated = res.json()["translatedText"]
-    except:
-        return "Translation failed."
+    fixed = ""
+    for i in range(0, len(parts) - 1, 2):
+        sentence = parts[i].strip()
+        punct = parts[i + 1]
 
-    # Fix English punctuation & capitalization
-    if target == "en":
-        translated = fix_english(translated, original_text)
+        if sentence:
+            sentence = sentence[0].upper() + sentence[1:]
 
-    return translated
+        fixed += sentence + punct + " "
+
+    fixed = fixed.strip()
+
+    # if no punctuation at end
+    if fixed and fixed[-1] not in ".?!":
+        fixed += "."
+
+    return fixed
 
 
 # ------------------ Webhook ------------------
