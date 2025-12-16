@@ -15,13 +15,6 @@ def is_bangla(text):
     return any("\u0980" <= c <= "\u09FF" for c in text)
 
 
-def is_roman_bangla(text):
-    keywords = [
-        "ami", "tumi", "kemon", "acho", "bhalo", "nai", "কি", "কিভাবে"
-    ]
-    t = text.lower()
-    return any(k in t for k in keywords)
-
 def roman_to_bangla(text):
     try:
         res = requests.post(
