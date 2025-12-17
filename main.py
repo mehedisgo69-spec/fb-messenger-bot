@@ -113,9 +113,10 @@ def webhook():
     for entry in data.get("entry", []):
         for msg in entry.get("messaging", []):
 
-            # 👉 Get Started button
+            psid = msg["sender"]["id"]
+
+            # ---------- Get Started ----------
             if "postback" in msg:
-                psid = msg["sender"]["id"]
                 payload = msg["postback"].get("payload")
 
                 if payload == "GET_STARTED":
@@ -125,17 +126,48 @@ def webhook():
                         "আমি স্বয়ংক্রিয়ভাবে অনুবাদ করে দেবো। 🌍\n\n"
                         "উদাহরণ:\n"
                         "• কেমন আছো?\n"
-                        "• How are you?"
+                        "• How are you?\n\n"
+                        "Help লিখলে ব্যবহার জানতে পারবেন।"
                     )
                     send_message(psid, welcome_text)
 
                 return "ok", 200
 
-            # 👉 Normal text message
+            # ---------- Text Message ----------
             if "message" in msg and "text" in msg["message"]:
-                psid = msg["sender"]["id"]
-                text = msg["message"]["text"]
+                text = msg["message"]["text"].strip()
+                text_lower = text.lower()
 
+                # ----- Help command -----
+                if text_lower == "help":
+                    help_text = (
+                        "🆘 সাহায্য\n\n"
+                        "আপনি যেকোনো ভাষায় লিখতে পারেন:\n"
+                        "• বাংলা\n"
+                        "• English\n"
+                        "• Roman Bangla\n\n"
+                        "আমি স্বয়ংক্রিয়ভাবে অনুবাদ করে দেবো।\n\n"
+                        "উদাহরণ:\n"
+                        "কেমন আছো?\n"
+                        "How are you?\n"
+                        "Tumi kemon acho?"
+                    )
+                    send_message(psid, help_text)
+                    return "ok", 200
+
+                # ----- About command -----
+                if text_lower == "about":
+                    about_text = (
+                        "ℹ️ About\n\n"
+                        "আমি একটি বাংলা ↔ ইংরেজি অনুবাদক বট।\n"
+                        "বাংলা, ইংরেজি ও Roman Bangla বুঝতে পারি।\n\n"
+                        "উদ্দেশ্য:\n"
+                        "সহজ ও দ্রুত অনুবাদ। ⚡"
+                    )
+                    send_message(psid, about_text)
+                    return "ok", 200
+
+                # ----- Normal translation (small words included) -----
                 translated = translate_text(text)
                 send_message(psid, translated)
 
