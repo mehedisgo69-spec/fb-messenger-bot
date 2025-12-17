@@ -29,6 +29,24 @@ def is_roman_bangla(text):
 
 # ---------------- English Fix ----------------
 
+def small_word_translate(text):
+    t = text.lower().strip()
+
+    mapping = {
+        "hi": "হাই",
+        "hello": "হ্যালো",
+        "hey": "হেই",
+        "bye": "বিদায়",
+        "thanks": "ধন্যবাদ",
+        "thank you": "ধন্যবাদ",
+        "ok": "ঠিক আছে",
+        "okay": "ঠিক আছে",
+        "yes": "হ্যাঁ",
+        "no": "না"
+    }
+
+    return mapping.get(t)
+
 def fix_english(text):
     text = text.strip()
     if not text:
@@ -74,9 +92,12 @@ def translate_text(text):
     if not text:
         return ""
 
-    if text.lower() in ["hi", "hello", "hey"]:
-        return fix_english(text)
+    # 🔹 Small words first (Hi, Hello, etc.)
+    small = small_word_translate(text)
+    if small:
+        return small
 
+    # Decide target language
     if is_bangla(text) or is_roman_bangla(text):
         target = "en"
     else:
